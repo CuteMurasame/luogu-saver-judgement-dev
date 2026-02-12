@@ -117,8 +117,9 @@ export async function getRecentJudgements({ page, per_page }) {
 				.take(perPage)
 				.getRawMany();
 
+			const tableName = Judgement.repository.metadata.tableName;
 			const countRows = await Judgement.repository.query(
-				'SELECT COUNT(*) AS total FROM (SELECT 1 FROM judgement GROUP BY permission_granted, permission_revoked, reason) grouped'
+				`SELECT COUNT(*) AS total FROM (SELECT 1 FROM ${tableName} GROUP BY permission_granted, permission_revoked, reason) grouped`
 			);
 			const totalCount = Number(countRows[0]?.total ?? 0);
 			const totalPages = Math.ceil(totalCount / perPage);
