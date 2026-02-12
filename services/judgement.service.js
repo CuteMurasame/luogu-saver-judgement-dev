@@ -1,6 +1,8 @@
 import Judgement from "../models/judgement.js";
+import User from "../models/user.js";
 import { withCache, invalidateCache, invalidateCacheByPattern } from "../core/cache.js";
 import { ExternalServiceError, logError, SystemError } from "../core/errors.js";
+import { In } from "typeorm";
 import { formatDate } from "../core/utils.js";
 import config from "../config.js";
 
@@ -158,9 +160,18 @@ export async function getRecentJudgements({ page, per_page }) {
 					where: groupFilters,
 					order: { time: 'DESC' }
 				});
+				const userIds = [...new Set(judgements.map(judgement => judgement.user_uid).filter(Boolean))];
+				const userMap = new Map();
+
+				if (userIds.length > 0) {
+					const users = await User.find({ where: { id: In(userIds) } });
+					for (const user of users) {
+						userMap.set(user.id, user);
+					}
+				}
 
 				for (const judgement of judgements) {
-					await judgement.loadRelationships();
+					judgement.user = userMap.get(judgement.user_uid) || null;
 					judgement.formatDate();
 					const groupKey = `${judgement.permission_granted || 0}:${judgement.permission_revoked || 0}:${judgement.reason ?? ''}`;
 					groupMap.get(groupKey)?.judgements.push(judgement);
