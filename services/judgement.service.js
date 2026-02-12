@@ -1,7 +1,6 @@
 import Judgement from "../models/judgement.js";
 import { withCache, invalidateCache, invalidateCacheByPattern } from "../core/cache.js";
 import { ExternalServiceError, logError, SystemError } from "../core/errors.js";
-import { paginateQuery } from "../core/pagination.js";
 import { formatDate } from "../core/utils.js";
 import config from "../config.js";
 
@@ -77,7 +76,7 @@ export async function saveJudgements(task, obj) {
 	
 	if (savedCount > 0) {
 		await Promise.all([
-			invalidateCacheByPattern('recent_judgements:*'),
+			invalidateCacheByPattern('recent_judgement_groups:*'),
 			invalidateCache(['statistics:full', 'statistics:counts'])
 		]);
 	}
@@ -98,29 +97,56 @@ export async function getRecentJudgements({ page, per_page }) {
 	const currentPage = Math.max(parseInt(page) || 1, 1);
 	const perPage = per_page || config.pagination.judgement;
 	
-	const cacheKey = `recent_judgements:${currentPage}:${perPage}`;
+	const cacheKey = `recent_judgement_groups:${currentPage}:${perPage}`;
 	
 	return await withCache({
 		cacheKey,
 		ttl: 600,
 		fetchFn: async () => {
-			const result = await paginateQuery(Judgement, {
+			const items = await Judgement.find({
 				where: {},
-				order: { time: 'DESC' },
-				page: currentPage,
-				limit: perPage,
-				extra: { perPage },
-				processItems: async (judgement) => {
-					await judgement.loadRelationships();
-					judgement.formatDate();
-				}
+				order: { time: 'DESC' }
 			});
-			
-			result.judgements = result.items;
-			result.pageCount = result.totalPages;
-			delete result.items;
-			
-			return result;
+
+			const groupMap = new Map();
+			const judgementGroups = [];
+
+			for (const judgement of items) {
+				await judgement.loadRelationships();
+				judgement.formatDate();
+
+				const reasonKey = judgement.reason ?? '';
+				const granted = judgement.permission_granted || 0;
+				const revoked = judgement.permission_revoked || 0;
+				const groupKey = `${granted}:${revoked}:${reasonKey}`;
+
+				let group = groupMap.get(groupKey);
+				if (!group) {
+					group = {
+						reason: judgement.reason,
+						permission_granted: granted,
+						permission_revoked: revoked,
+						judgements: []
+					};
+					groupMap.set(groupKey, group);
+					judgementGroups.push(group);
+				}
+
+				group.judgements.push(judgement);
+			}
+
+			const totalCount = judgementGroups.length;
+			const totalPages = Math.ceil(totalCount / perPage);
+			const startIndex = (currentPage - 1) * perPage;
+			const pagedGroups = judgementGroups.slice(startIndex, startIndex + perPage);
+
+			return {
+				judgements: pagedGroups,
+				currentPage,
+				totalPages,
+				perPage,
+				pageCount: totalPages
+			};
 		}
 	});
 }
