@@ -117,38 +117,54 @@ export async function getRecentJudgements({ page, per_page }) {
 				.take(perPage)
 				.getRawMany();
 
-			const tableName = Judgement.repository.metadata.tableName;
-			const countRows = await Judgement.repository.query(
-				`SELECT COUNT(*) AS total FROM (SELECT 1 FROM ${tableName} GROUP BY permission_granted, permission_revoked, reason) grouped`
-			);
-			const totalCount = Number(countRows[0]?.total ?? 0);
+			const countRow = await Judgement.repository.manager.createQueryBuilder()
+				.select('COUNT(*)', 'total')
+				.from(subQuery => {
+					return subQuery
+						.select('1')
+						.from(Judgement.repository.metadata.tableName, 'judgement')
+						.groupBy('judgement.permission_granted')
+						.addGroupBy('judgement.permission_revoked')
+						.addGroupBy('judgement.reason');
+				}, 'grouped')
+				.getRawOne();
+			const totalCount = Number(countRow?.total ?? 0);
 			const totalPages = Math.ceil(totalCount / perPage);
 			const judgementGroups = [];
+			const groupMap = new Map();
 
 			for (const row of groupRows) {
 				const permissionGranted = Number(row.permission_granted) || 0;
 				const permissionRevoked = Number(row.permission_revoked) || 0;
 				const reason = row.reason;
+				const groupKey = `${permissionGranted}:${permissionRevoked}:${reason ?? ''}`;
+				const group = {
+					reason,
+					permission_granted: permissionGranted,
+					permission_revoked: permissionRevoked,
+					judgements: []
+				};
+				groupMap.set(groupKey, group);
+				judgementGroups.push(group);
+			}
+
+			if (groupRows.length > 0) {
+				const groupFilters = groupRows.map(row => ({
+					permission_granted: Number(row.permission_granted) || 0,
+					permission_revoked: Number(row.permission_revoked) || 0,
+					reason: row.reason
+				}));
 				const judgements = await Judgement.find({
-					where: {
-						permission_granted: permissionGranted,
-						permission_revoked: permissionRevoked,
-						reason
-					},
+					where: groupFilters,
 					order: { time: 'DESC' }
 				});
 
 				for (const judgement of judgements) {
 					await judgement.loadRelationships();
 					judgement.formatDate();
+					const groupKey = `${judgement.permission_granted || 0}:${judgement.permission_revoked || 0}:${judgement.reason ?? ''}`;
+					groupMap.get(groupKey)?.judgements.push(judgement);
 				}
-
-				judgementGroups.push({
-					reason,
-					permission_granted: permissionGranted,
-					permission_revoked: permissionRevoked,
-					judgements
-				});
 			}
 
 			return {
