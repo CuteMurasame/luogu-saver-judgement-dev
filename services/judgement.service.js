@@ -103,45 +103,55 @@ export async function getRecentJudgements({ page, per_page }) {
 		cacheKey,
 		ttl: 600,
 		fetchFn: async () => {
-			const items = await Judgement.find({
-				where: {},
-				order: { time: 'DESC' }
-			});
+			const offset = (currentPage - 1) * perPage;
+			const groupRows = await Judgement.createQueryBuilder('judgement')
+				.select('judgement.permission_granted', 'permission_granted')
+				.addSelect('judgement.permission_revoked', 'permission_revoked')
+				.addSelect('judgement.reason', 'reason')
+				.addSelect('MAX(judgement.time)', 'latest_time')
+				.groupBy('judgement.permission_granted')
+				.addGroupBy('judgement.permission_revoked')
+				.addGroupBy('judgement.reason')
+				.orderBy('latest_time', 'DESC')
+				.skip(offset)
+				.take(perPage)
+				.getRawMany();
 
-			const groupMap = new Map();
+			const countRows = await Judgement.repository.query(
+				'SELECT COUNT(*) AS total FROM (SELECT 1 FROM judgement GROUP BY permission_granted, permission_revoked, reason) grouped'
+			);
+			const totalCount = Number(countRows[0]?.total ?? 0);
+			const totalPages = Math.ceil(totalCount / perPage);
 			const judgementGroups = [];
 
-			for (const judgement of items) {
-				await judgement.loadRelationships();
-				judgement.formatDate();
+			for (const row of groupRows) {
+				const permissionGranted = Number(row.permission_granted) || 0;
+				const permissionRevoked = Number(row.permission_revoked) || 0;
+				const reason = row.reason;
+				const judgements = await Judgement.find({
+					where: {
+						permission_granted: permissionGranted,
+						permission_revoked: permissionRevoked,
+						reason
+					},
+					order: { time: 'DESC' }
+				});
 
-				const reasonKey = judgement.reason ?? '';
-				const granted = judgement.permission_granted || 0;
-				const revoked = judgement.permission_revoked || 0;
-				const groupKey = `${granted}:${revoked}:${reasonKey}`;
-
-				let group = groupMap.get(groupKey);
-				if (!group) {
-					group = {
-						reason: judgement.reason,
-						permission_granted: granted,
-						permission_revoked: revoked,
-						judgements: []
-					};
-					groupMap.set(groupKey, group);
-					judgementGroups.push(group);
+				for (const judgement of judgements) {
+					await judgement.loadRelationships();
+					judgement.formatDate();
 				}
 
-				group.judgements.push(judgement);
+				judgementGroups.push({
+					reason,
+					permission_granted: permissionGranted,
+					permission_revoked: permissionRevoked,
+					judgements
+				});
 			}
 
-			const totalCount = judgementGroups.length;
-			const totalPages = Math.ceil(totalCount / perPage);
-			const startIndex = (currentPage - 1) * perPage;
-			const pagedGroups = judgementGroups.slice(startIndex, startIndex + perPage);
-
 			return {
-				judgements: pagedGroups,
+				judgements: judgementGroups,
 				currentPage,
 				totalPages,
 				perPage,
