@@ -65,18 +65,65 @@ export function getResponseObject(response, type = 0) {
 					throw new ExternalServiceError(`解析陶片放逐页面JSON失败: ${parseError.message}`, "Luogu API");
 				}
 				
-				// 修正数据路径：应该从 dataObj.data 而不是 dataObj.currentData 获取
-				const result = dataObj.data || {};
+				const getLogsFromObj = (candidate) => {
+					if (!candidate || typeof candidate !== 'object') return null;
+					if (candidate.logs && Array.isArray(candidate.logs)) return candidate;
+					if (candidate.data && Array.isArray(candidate.data.logs)) return candidate.data;
+					if (candidate.currentData && Array.isArray(candidate.currentData.logs)) return candidate.currentData;
+					return null;
+				};
+				const hasLogs = (value) => value?.logs && Array.isArray(value.logs);
+				const tryExtractLogsFromElement = (el, selector, elementIndex) => {
+					const text = $(el).text().trim();
+					if (!text) return false;
+					try {
+						const parsed = JSON.parse(text);
+						const logsObj = getLogsFromObj(parsed);
+						if (logsObj) {
+							result = logsObj;
+							logger.debug(`从 ${selector} 提取到 ${result.logs.length} 条陶片放逐记录`);
+							return true;
+						}
+					} catch (parseError) {
+						logger.debug(`解析 ${selector} JSON 失败 (元素 ${elementIndex}): ${parseError.message}`);
+					}
+					return false;
+				};
 				
-				if (result && result.logs && Array.isArray(result.logs)) {
+				// 修正数据路径：应该从 dataObj.data 而不是 dataObj.currentData 获取
+				let result = getLogsFromObj(dataObj.data);
+				
+				if (hasLogs(result)) {
 					logger.debug(`陶片放逐 HTML 解析返回 ${result.logs.length} 条记录`);
 				} else {
-					const resultStr = JSON.stringify(result, null, 2) || '';
-					logger.debug('陶片放逐数据结构异常: ' + resultStr.substring(0, 1000));
-					logger.debug('dataObj 完整结构: ' + JSON.stringify(dataObj, null, 2).substring(0, 1000));
-					// 确保返回一个包含空logs数组的对象
-					if (!result.logs) {
-						result.logs = [];
+					// 兼容新版 lentille 拆分数据：data 里存的是状态索引
+					const LENTILLE_STATE_INDEX_KEY = ':'; // Lentille 使用 ':' 作为状态索引的键名（如对应 #lentille-state-0）
+					const stateIndex = typeof dataObj?.data?.[LENTILLE_STATE_INDEX_KEY] === 'number' ? dataObj.data[LENTILLE_STATE_INDEX_KEY] : undefined;
+					const fallbackSelectors = [];
+					if (stateIndex !== undefined) {
+						fallbackSelectors.push(`#lentille-state-${stateIndex}`, `#lentille-data-${stateIndex}`);
+					}
+					fallbackSelectors.push('script[type="application/json"]');
+					
+					const extractLogsFromSelectors = (selectors) => {
+						for (const selector of selectors) {
+							const elementArray = $(selector).toArray();
+							for (let elementIndex = 0; elementIndex < elementArray.length; elementIndex++) {
+								if (hasLogs(result)) return true;
+								if (tryExtractLogsFromElement(elementArray[elementIndex], selector, elementIndex)) return true;
+							}
+						}
+						return hasLogs(result);
+					};
+					
+					extractLogsFromSelectors(fallbackSelectors);
+					
+					if (!hasLogs(result)) {
+						result = result || {};
+						result.logs = result.logs || [];
+						const resultStr = JSON.stringify(result, null, 2) || '';
+						logger.debug('陶片放逐数据结构异常: ' + resultStr.substring(0, 1000));
+						logger.debug('dataObj 完整结构: ' + JSON.stringify(dataObj, null, 2).substring(0, 1000));
 					}
 				}
 				return result;
