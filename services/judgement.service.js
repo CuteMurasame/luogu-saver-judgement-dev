@@ -134,12 +134,15 @@ export async function getRecentJudgements({ page, per_page }) {
 			const totalPages = Math.ceil(totalCount / perPage);
 			const judgementGroups = [];
 			const groupMap = new Map();
+			const buildGroupKey = (permissionGranted, permissionRevoked, reason) => (
+				`${permissionGranted}:${permissionRevoked}:${reason ?? ''}`
+			);
 
 			for (const row of groupRows) {
 				const permissionGranted = Number(row.permission_granted) || 0;
 				const permissionRevoked = Number(row.permission_revoked) || 0;
 				const reason = row.reason;
-				const groupKey = `${permissionGranted}:${permissionRevoked}:${reason ?? ''}`;
+				const groupKey = buildGroupKey(permissionGranted, permissionRevoked, reason);
 				const group = {
 					reason,
 					permission_granted: permissionGranted,
@@ -173,7 +176,11 @@ export async function getRecentJudgements({ page, per_page }) {
 				for (const judgement of judgements) {
 					judgement.user = userMap.get(judgement.user_uid) || null;
 					judgement.formatDate();
-					const groupKey = `${judgement.permission_granted || 0}:${judgement.permission_revoked || 0}:${judgement.reason ?? ''}`;
+					const groupKey = buildGroupKey(
+						judgement.permission_granted || 0,
+						judgement.permission_revoked || 0,
+						judgement.reason
+					);
 					groupMap.get(groupKey)?.judgements.push(judgement);
 				}
 			}
