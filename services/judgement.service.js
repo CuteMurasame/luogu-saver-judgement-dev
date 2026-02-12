@@ -110,11 +110,12 @@ export async function getRecentJudgements({ page, per_page }) {
 				.select('judgement.permission_granted', 'permission_granted')
 				.addSelect('judgement.permission_revoked', 'permission_revoked')
 				.addSelect('judgement.reason', 'reason')
-				.addSelect('MAX(judgement.time)', 'latest_time')
+				.addSelect('judgement.time', 'time')
 				.groupBy('judgement.permission_granted')
 				.addGroupBy('judgement.permission_revoked')
 				.addGroupBy('judgement.reason')
-				.orderBy('latest_time', 'DESC')
+				.addGroupBy('judgement.time')
+				.orderBy('judgement.time', 'DESC')
 				.skip(offset)
 				.take(perPage)
 				.getRawMany();
@@ -127,26 +128,30 @@ export async function getRecentJudgements({ page, per_page }) {
 						.from(Judgement.repository.metadata.tableName, 'judgement')
 						.groupBy('judgement.permission_granted')
 						.addGroupBy('judgement.permission_revoked')
-						.addGroupBy('judgement.reason');
+						.addGroupBy('judgement.reason')
+						.addGroupBy('judgement.time');
 				}, 'grouped')
 				.getRawOne();
 			const totalCount = Number(countRow?.total ?? 0);
 			const totalPages = Math.ceil(totalCount / perPage);
 			const judgementGroups = [];
 			const groupMap = new Map();
-			const buildGroupKey = (permissionGranted, permissionRevoked, reason) => (
-				`${permissionGranted}:${permissionRevoked}:${reason ?? ''}`
+			const buildGroupKey = (permissionGranted, permissionRevoked, reason, time) => (
+				`${permissionGranted}:${permissionRevoked}:${reason ?? ''}:${time}`
 			);
 
 			for (const row of groupRows) {
 				const permissionGranted = Number(row.permission_granted) || 0;
 				const permissionRevoked = Number(row.permission_revoked) || 0;
 				const reason = row.reason;
-				const groupKey = buildGroupKey(permissionGranted, permissionRevoked, reason);
+				const time = row.time;
+				const timeKey = new Date(time).toISOString();
+				const groupKey = buildGroupKey(permissionGranted, permissionRevoked, reason, timeKey);
 				const group = {
 					reason,
 					permission_granted: permissionGranted,
 					permission_revoked: permissionRevoked,
+					time: formatDate(new Date(time)),
 					judgements: []
 				};
 				groupMap.set(groupKey, group);
@@ -157,7 +162,8 @@ export async function getRecentJudgements({ page, per_page }) {
 				const groupFilters = groupRows.map(row => ({
 					permission_granted: Number(row.permission_granted) || 0,
 					permission_revoked: Number(row.permission_revoked) || 0,
-					reason: row.reason
+					reason: row.reason,
+					time: row.time
 				}));
 				const judgements = await Judgement.find({
 					where: groupFilters,
@@ -175,11 +181,12 @@ export async function getRecentJudgements({ page, per_page }) {
 
 				for (const judgement of judgements) {
 					judgement.user = userMap.get(judgement.user_uid) || null;
-					judgement.formatDate();
+					const timeKey = new Date(judgement.time).toISOString();
 					const groupKey = buildGroupKey(
 						judgement.permission_granted || 0,
 						judgement.permission_revoked || 0,
-						judgement.reason
+						judgement.reason,
+						timeKey
 					);
 					groupMap.get(groupKey)?.judgements.push(judgement);
 				}
