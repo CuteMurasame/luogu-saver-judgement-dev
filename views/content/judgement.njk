@@ -47,20 +47,23 @@
             font-size: 1.05em;
             line-height: 1.6;
         }
-        .judgement-group-summary {
-            margin-bottom: 16px;
-        }
         .judgement-group-users {
             display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-        .judgement-user-entry {
-            display: flex;
+            flex-wrap: wrap;
             align-items: center;
-            gap: 16px;
+            gap: 8px;
+            margin-bottom: 12px;
         }
-        .judgement-user-entry + .judgement-user-entry {
+        .judgement-user-inline {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .judgement-user-inline img {
+            width: 24px;
+            height: 24px;
+        }
+        .judgement-group-details {
             border-top: 1px solid #e9ecef;
             padding-top: 12px;
         }
@@ -111,7 +114,25 @@
             <div class="sixteen wide column">
             {% for group in judgements %}
                 <div class="card shadow outline">
-                    <div class="judgement-group-summary">
+                    <div class="judgement-group-users">
+                        {% for judgement in group.judgements %}
+                            <span class="judgement-user-inline">
+                                {% if judgement.user %}
+                                    <img class="ui circular image"
+                                         src="https://cdn.luogu.com.cn/upload/usericon/{{ judgement.user.id }}.png"
+                                         alt="{{ judgement.user.name }}"
+                                         onerror="this.src='https://cdn.luogu.com.cn/upload/usericon/3.png'">
+                                    <span class="judgement-user-name">@<a href="/user/{{ judgement.user.id }}" class="user-{{ judgement.user.color }}">{{ judgement.user.name }}</a></span>
+                                {% else %}
+                                    <img class="ui circular image"
+                                         src="https://cdn.luogu.com.cn/upload/usericon/3.png"
+                                         alt="默认头像">
+                                    <span class="judgement-user-name user-Gray">用户 {{ judgement.user_uid }}</span>
+                                {% endif %}
+                            </span>
+                        {% endfor %}
+                    </div>
+                    <div class="judgement-group-details">
                         {% if group.permission_granted > 0 or group.permission_revoked > 0 %}
                             <div class="judgement-permissions">
                                 <ul>
@@ -133,37 +154,10 @@
                         <div class="judgement-reason">
                             {{ group.reason }}。
                         </div>
-                    </div>
-                    <div class="judgement-group-users">
-                        {% for judgement in group.judgements %}
-                            <div class="judgement-user-entry">
-                                <div style="width: 70px;" class="meta user">
-                                    {% if judgement.user %}
-                                        <img class="ui circular image"
-                                             src="https://cdn.luogu.com.cn/upload/usericon/{{ judgement.user.id }}.png"
-                                             alt="{{ judgement.user.name }}"
-                                             onerror="this.src='https://cdn.luogu.com.cn/upload/usericon/3.png'">
-                                    {% else %}
-                                        <img class="ui circular image"
-                                             src="https://cdn.luogu.com.cn/upload/usericon/3.png"
-                                             alt="默认头像">
-                                    {% endif %}
-                                </div>
-                                <div>
-                                    <div class="judgement-user-name">
-                                        {% if judgement.user %}
-                                            @<a href="/user/{{ judgement.user.id }}" class="user-{{ judgement.user.color }}">{{ judgement.user.name }}</a>
-                                        {% else %}
-                                            <span class="user-Gray">用户 {{ judgement.user_uid }}</span>
-                                        {% endif %}
-                                    </div>
-                                    <div class="judgement-meta meta gray">
-                                        <i class="fas fa-calendar-alt"></i>
-                                        <span>{{ judgement.created_at | formatDate }}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        {% endfor %}
+                        <div class="judgement-meta meta gray">
+                            <i class="fas fa-calendar-alt"></i>
+                            <span>{{ group.time }}</span>
+                        </div>
                     </div>
                 </div>
             {% endfor %}
